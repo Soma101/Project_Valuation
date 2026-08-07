@@ -237,6 +237,7 @@ class Inputs:
     cost_per_unit: float
     growth_rate: float           # decimal
     capex: float
+    reclamation_value: float     # NEW: decimal, terminal cash flow value
     dep_method: str
     dep_life: int
     gross_margin: float          # decimal
@@ -274,6 +275,7 @@ def build_pro_forma(i: Inputs) -> pd.DataFrame:
             "Net working capital (balance)",
             "Change in NWC",
             "CapEx",
+            "Reclamation value",      # NEW
             "Free cash flow",
             "Cumulative FCF",
             "Discounted FCF",
@@ -342,7 +344,10 @@ def build_pro_forma(i: Inputs) -> pd.DataFrame:
         nwc_prev = nwc_balance
 
         capex_flow = i.capex if t == 0 else 0.0
-        fcf = nopat + d - delta_nwc - capex_flow
+        reclamation_flow = i.reclamation_value if t == i.term else 0.0  # NEW
+
+        # FCF calculation updated to include reclamation inflow
+        fcf = nopat + d - delta_nwc - capex_flow + reclamation_flow
 
         vals = {
             "Units sold": units,
@@ -361,6 +366,7 @@ def build_pro_forma(i: Inputs) -> pd.DataFrame:
             "Net working capital (balance)": nwc_balance,
             "Change in NWC": -delta_nwc,
             "CapEx": -capex_flow,
+            "Reclamation value": reclamation_flow,  # NEW
             "Free cash flow": fcf,
         }
         for k, val in vals.items():
@@ -452,6 +458,14 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
         value=3_000_000.0, step=50_000.0, format="%.2f",
         help="Spent at Year 0.",
     )
+    
+    # NEW: Reclamation value input
+    reclamation = sb.number_input(
+        "Reclamation / Salvage value ($)", min_value=0.0, max_value=MAX_MONEY,
+        value=0.0, step=10_000.0, format="%.2f",
+        help="Capital recovered at the end of the project term. Must be between $0 and Initial CapEx."
+    )
+
     dep_method = sb.selectbox("Depreciation method", DEPRECIATION_METHODS, index=0)
     dep_life = sb.number_input(
         "Depreciable life (years)", min_value=1, max_value=MAX_TERM,
@@ -508,6 +522,7 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
         (target_payback, "Target payback period"),
         (growth_pct, "Annual sales growth rate"),
         (capex, "Initial capital expenditure"),
+        (reclamation, "Reclamation value"),  # NEW
         (dep_life, "Depreciable life"),
         (base_opex, "Base OpEx"),
         (cond_threshold, "Conditional OpEx threshold"),
@@ -544,6 +559,14 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
     check_range(v, wacc_pct, "Discount rate (WACC)", minimum=0, maximum=200, units="%")
     check_range(v, growth_pct, "Annual sales growth rate", minimum=-100, maximum=500,
                 units="%")
+
+    # NEW: Strict custom verification for reclamation bounds
+    if is_number(reclamation) and is_number(capex):
+        r_val, c_val = float(reclamation), float(capex)
+        if r_val < 0:
+            v.error("Reclamation value cannot be negative.")
+        elif r_val > c_val:
+            v.error(f"Reclamation value (${r_val:,.2f}) cannot exceed the initial CapEx (${c_val:,.2f}).")
 
     if revenue_mode == "Total revenue":
         check_range(v, initial_revenue, "Initial revenue", minimum=0, allow_min=False,
@@ -621,6 +644,7 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
         cost_per_unit=float(cost_per_unit),
         growth_rate=float(growth_pct) / 100.0,
         capex=float(capex),
+        reclamation_value=float(reclamation) if is_number(reclamation) else 0.0, # NEW
         dep_method=dep_method,
         dep_life=int(dep_life) if is_number(dep_life) else 1,
         gross_margin=float(gross_margin_pct) / 100.0,
@@ -731,7 +755,7 @@ def show_results(i: Inputs, df: pd.DataFrame) -> None:
     st.subheader("Pro forma cash flows")
     st.dataframe(df.style.format("{:,.0f}"), use_container_width=True)
     st.caption(
-        "Outflows are shown negative. FCF = NOPAT + depreciation − ΔNWC − CapEx. "
+        "Outflows are shown negative. FCF = NOPAT + depreciation − ΔNWC − CapEx + Reclamation value. "
         "Working capital is funded a year ahead of the revenue it supports and "
         "released in the final year."
     )
