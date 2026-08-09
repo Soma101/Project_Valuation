@@ -310,7 +310,8 @@ def build_pro_forma(i: Inputs) -> pd.DataFrame:
         base_opex = i.base_opex if t >= 1 else 0.0
         premium = 0.0
         if t >= 1 and revenue > i.cond_threshold:
-            premium = revenue * i.cond_premium if i.premium_is_pct else i.cond_premium
+            # CHANGED: Premium is now a percent of base OpEx instead of revenue
+            premium = base_opex * i.cond_premium if i.premium_is_pct else i.cond_premium
         total_opex = base_opex + premium
 
         ebitda = gross_profit - total_opex
@@ -484,12 +485,13 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
         help="Above this revenue level, the premium below is added to OpEx.",
     )
     premium_unit = sb.radio(
-        "Conditional OpEx premium is", ["% of revenue", "Fixed $ per year"],
+        # CHANGED: "% of revenue" to "% of base OpEx"
+        "Conditional OpEx premium is", ["% of base OpEx", "Fixed $ per year"],
         horizontal=True,
     )
-    if premium_unit == "% of revenue":
+    if premium_unit == "% of base OpEx":
         cond_premium_val = sb.number_input(
-            "Conditional OpEx premium (% of revenue)", min_value=0.0, max_value=100.0,
+            "Conditional OpEx premium (% of base OpEx)", min_value=0.0, max_value=100.0,
             value=2.0, step=0.25, format="%.2f",
         )
     else:
@@ -650,9 +652,10 @@ def collect_inputs() -> Tuple[Inputs, Validation]:
         gross_margin=float(gross_margin_pct) / 100.0,
         base_opex=float(base_opex),
         cond_threshold=float(cond_threshold),
+        # CHANGED: logic check reflects the new UI string
         cond_premium=(float(cond_premium_val) / 100.0
-                      if premium_unit == "% of revenue" else float(cond_premium_val)),
-        premium_is_pct=(premium_unit == "% of revenue"),
+                      if premium_unit == "% of base OpEx" else float(cond_premium_val)),
+        premium_is_pct=(premium_unit == "% of base OpEx"),
         nwc_pct=float(nwc_pct) / 100.0,
         tax_rate=float(tax_pct) / 100.0,
         wacc=float(wacc_pct) / 100.0,
